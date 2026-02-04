@@ -1,6 +1,10 @@
-# Chess Board Analyzer
+# Chess Assistant
 
-Analyzes chess board screenshots and suggests the best move using Claude Vision + Stockfish.
+A chess analysis tool powered by Stockfish with multiple interfaces:
+
+- **GUI Application** - Full graphical interface with board visualization, move history, and auto-play
+- **CLI Analyzer** - Analyze board screenshots using Claude Vision
+- **FEN Console** - Quick analysis by pasting FEN strings
 
 **Output format:** `Piece(StartPos) to (EndPos)` (e.g., `Knight(g1) to (f3)`)
 
@@ -31,7 +35,14 @@ sudo apt install stockfish
 
 ### 3. Set up API key
 
-Set your Anthropic API key as an environment variable:
+Create a `.env` file in the project directory (copy from `.env.example`):
+
+```
+ANTHROPIC_API_KEY=your-api-key-here
+STOCKFISH_PATH=C:\path\to\stockfish.exe
+```
+
+Or set environment variables directly:
 
 **Windows (PowerShell):**
 ```powershell
@@ -50,7 +61,36 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 
 ## Usage
 
-### From clipboard (default)
+### GUI Application (Recommended)
+
+Launch the graphical interface:
+
+```bash
+python chess_gui.py
+```
+
+Features:
+- Interactive chess board with piece highlighting
+- Stockfish analysis with evaluation bar
+- Save/load games in PGN format
+- Auto-play mode
+- Move history panel
+
+### FEN Console
+
+Quick analysis by pasting FEN strings:
+
+```bash
+python run.py
+```
+
+Paste a FEN position (e.g., from chess.com Settings > Game > Copy FEN) and get the best move with a brief explanation.
+
+### CLI Analyzer (Screenshot Analysis)
+
+Analyze board screenshots using Claude Vision.
+
+#### From clipboard (default)
 
 1. Take a screenshot of a chess board
 2. Copy it to clipboard (or use snipping tool)
@@ -60,25 +100,25 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 python chess_analyzer.py
 ```
 
-### From file
+#### From file
 
 ```bash
 python chess_analyzer.py -f board.png
 ```
 
-### Playing as black
+#### Playing as black
 
 ```bash
 python chess_analyzer.py --color black
 ```
 
-### Verbose output (shows FEN and move details)
+#### Verbose output (shows FEN and move details)
 
 ```bash
 python chess_analyzer.py -v
 ```
 
-### Direct FEN input (skip image analysis)
+#### Direct FEN input (skip image analysis)
 
 ```bash
 python chess_analyzer.py --fen "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
