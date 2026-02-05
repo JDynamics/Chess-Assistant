@@ -29,6 +29,36 @@ A native Android port of the Python Chess Assistant application. Analyze chess p
 - AI-powered move explanations (requires API key)
 - Query history
 
+### 4. Live Camera (NEW)
+- Real-time camera preview
+- Auto-analyze mode (analyzes board every few seconds)
+- Manual capture with one-tap analysis
+- Flash toggle and camera switch
+- Board alignment overlay guide
+
+### 5. Monetization
+- Google AdMob integration (banner + interstitial ads)
+- Configurable ad placement
+- Ad-free premium option (planned)
+
+---
+
+## Responsive Design
+
+The UI automatically scales to fit any device:
+
+| Device Type | Screen Size | Optimization |
+|-------------|-------------|--------------|
+| Phone (compact) | < 600dp | Single column, full-width board |
+| Phone (medium) | 600-840dp | Optimized touch targets |
+| Tablet | > 840dp | Larger board, side panels |
+| Foldable | Variable | Adapts to fold state |
+
+The chess board uses `BoxWithConstraints` to calculate:
+- Square sizes as percentage of screen width
+- Font sizes proportional to square size
+- Border widths that scale appropriately
+
 ---
 
 ## Prerequisites
@@ -173,6 +203,10 @@ ChessAssistantAndroid/
 │   │   │   ├── ChessAssistantApp.kt       # Application class (Hilt)
 │   │   │   ├── MainActivity.kt            # Single Activity entry point
 │   │   │   │
+│   │   │   ├── ads/                       # Advertising
+│   │   │   │   ├── AdManager.kt           # AdMob initialization & management
+│   │   │   │   └── BannerAd.kt            # Banner ad composable
+│   │   │   │
 │   │   │   ├── di/                        # Dependency Injection
 │   │   │   │   ├── AppModule.kt           # App-wide dependencies
 │   │   │   │   ├── NetworkModule.kt       # Retrofit/OkHttp setup
@@ -185,6 +219,7 @@ ChessAssistantAndroid/
 │   │   │   │   │   ├── home/              # Main menu
 │   │   │   │   │   ├── game/              # Chess GUI
 │   │   │   │   │   ├── analyzer/          # Screenshot analyzer
+│   │   │   │   │   ├── livecamera/        # Real-time camera analysis
 │   │   │   │   │   ├── console/           # FEN console
 │   │   │   │   │   └── settings/          # App settings
 │   │   │   │   └── components/            # Reusable composables
@@ -410,6 +445,52 @@ val AccentColor = Color(0xFF4CAF50)    // Green (buttons)
 
 ---
 
+## Roadmap
+
+### Next Sprint: Freemium Model
+
+Replace cloud-based board detection with on-device ML for cost-free analysis:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FREEMIUM ARCHITECTURE                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. BOARD DETECTION (Camera → FEN)                         │
+│     └── TensorFlow Lite model (FREE, offline, ~95% acc)    │
+│                                                             │
+│  2. MOVE CALCULATION (FEN → Best Move)                     │
+│     └── Stockfish Engine (FREE, already integrated)        │
+│                                                             │
+│  3. PREMIUM FEATURES (Optional subscription)               │
+│     ├── AI Commentary & Explanations                       │
+│     ├── Deep analysis with multiple lines                  │
+│     └── Ad-free experience                                 │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Feature | Free Tier | Premium Tier |
+|---------|-----------|--------------|
+| Board Detection | TFLite (offline) | TFLite (offline) |
+| Move Calculation | Stockfish | Stockfish |
+| Commentary | Template-based | AI-powered |
+| Analysis Lines | 1 line | 3+ lines |
+| Ads | Banner + Interstitial | No ads |
+
+### Future Features
+
+- [ ] TFLite chess board recognition model
+- [ ] Premium subscription with Google Play Billing
+- [ ] Opening book database
+- [ ] Endgame tablebase support
+- [ ] Game analysis with accuracy score
+- [ ] Puzzle mode from Lichess API
+- [ ] Cloud sync for saved games
+- [ ] Multiplayer via chess.com/Lichess integration
+
+---
+
 ## License
 
 This project is for personal/educational use. Stockfish is licensed under GPL-3.0.
@@ -419,5 +500,5 @@ This project is for personal/educational use. Stockfish is licensed under GPL-3.
 ## Credits
 
 - **Stockfish** - Open source chess engine
-- **Anthropic Claude** - AI vision and language model
+- **TensorFlow Lite** - On-device ML (planned)
 - Original Python implementation by the project author
