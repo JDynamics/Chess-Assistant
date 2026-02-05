@@ -69,12 +69,42 @@ Launch the graphical interface:
 python chess_gui.py
 ```
 
-Features:
-- Interactive chess board with piece highlighting
-- Stockfish analysis with evaluation bar
+#### Game Modes
+
+**Current Play Mode** - Play against yourself or a friend with AI assistance
+- Choose your color (White/Black)
+- Select difficulty level:
+  - **Perfect**: Shows only the best move
+  - **Strong**: Shows top 2 move alternatives
+  - **Good**: Shows top 4 move alternatives
+  - **Hints Only**: Position evaluation without move suggestions
+  - **No Help**: Play without any assistance
+- Auto-play button to execute suggested moves
+- Real-time analysis with continuation lines
+
+**Puzzle Mode** - Create and solve chess puzzles
+- Start with standard position or modify the board
+- Click pieces to remove them
+- Click empty squares to place pieces
+- Use 'Clear' for empty board, 'Reset' for starting position
+- Click 'Done' when puzzle is ready
+- Click 'Solve' to get AI solution (depth 25 analysis)
+
+**Bot Mode** - Watch Stockfish AI play against itself
+- Adjustable game speed (1-10 scale)
+- Start/Pause controls
+- Objective analysis showing evaluation for both sides
+- Great for studying opening theory and endgames
+
+#### Core Features
+- Interactive chess board with Unicode chess pieces
+- Real-time Stockfish analysis with evaluation
+- MultiPV analysis (multiple move alternatives)
 - Save/load games in PGN format
-- Auto-play mode
-- Move history panel
+- Move history with descriptive notation
+- Check highlighting and move validation
+- Board flip option
+- Undo moves
 
 ### FEN Console
 
