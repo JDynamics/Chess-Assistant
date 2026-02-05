@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Cache directory for temporary camera captures -->
+    <cache-path
+        name="cache"
+        path="." />
+
+    <!-- External cache for shared images -->
+    <external-cache-path
+        name="external_cache"
+        path="." />
+
+    <!-- Internal files directory for saved games -->
+    <files-path
+        name="games"
+        path="games/" />
+</paths>

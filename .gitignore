@@ -19,3 +19,18 @@ stockfish/
 # OS
 .DS_Store
 Thumbs.db
+
+# Tool configuration
+.claude/
+
+# Android
+*.apk
+*.aab
+*.dex
+*.class
+*.log
+local.properties
+.gradle/
+build/
+.cxx/
+*.hprof

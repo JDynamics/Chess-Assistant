@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0"/>
+
+    <!-- Chess Knight piece (simplified) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,72 L42,68 L36,68 L36,64 L40,64 L40,58 C40,52 44,46 52,44 L52,38 C52,34 56,32 60,34 L60,38 L64,40 L68,36 L70,38 L66,44 C68,46 70,50 70,56 L70,64 L74,64 L74,68 L68,68 L68,72 Z M46,64 L64,64 L64,56 C64,50 60,46 54,46 C48,46 46,52 46,58 Z"/>
+
+</vector>
