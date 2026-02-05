@@ -11,6 +11,7 @@ import chess.pgn
 import threading
 import os
 import io
+import random
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -19,6 +20,18 @@ load_dotenv()
 
 
 class ChessGUI:
+    # Game modes
+    MODE_CURRENT_PLAY = "current_play"
+    MODE_PUZZLE = "puzzle"
+    MODE_BOT = "bot"
+
+    # Difficulty levels for Current Play
+    DIFFICULTY_PERFECT = "perfect"  # Always show best move
+    DIFFICULTY_STRONG = "strong"  # Random from top 2 moves
+    DIFFICULTY_GOOD = "good"  # Random from top 4 moves
+    DIFFICULTY_HINTS = "hints"  # Only hints, no best move
+    DIFFICULTY_NONE = "none"  # No help at all
+
     def __init__(self, root):
         self.root = root
         self.root.title("Chess Assistant Pro")
@@ -34,6 +47,13 @@ class ChessGUI:
         self.best_move = None  # Store the current best move for auto-play
         self.auto_play_enabled = False
         self.game_over_shown = False  # Prevent multiple game over popups
+
+        # Game mode settings
+        self.game_mode = None  # Will be set by mode selection dialog
+        self.difficulty = self.DIFFICULTY_PERFECT  # For Current Play mode
+        self.bot_running = False  # For Bot mode
+        self.bot_speed = 1000  # milliseconds between bot moves
+        self.puzzle_setup_mode = False  # For Puzzle mode - when True, user can place pieces
 
         # Unicode chess pieces (much nicer looking!)
         self.piece_unicode = {
@@ -74,7 +94,7 @@ class ChessGUI:
 
         self.setup_ui()
         self.connect_engine()
-        self.root.after(100, self.show_player_selection)
+        self.root.after(100, self.show_mode_selection)
 
     def setup_ui(self):
         # Configure styles
@@ -241,6 +261,42 @@ class ChessGUI:
                  command=self.load_game, bg="#2196F3", fg="white", relief="flat",
                  padx=15, pady=5).pack(side="left", padx=5)
 
+        # Mode-specific buttons (will be shown/hidden based on mode)
+        self.puzzle_button_frame = tk.Frame(right_panel, bg=self.panel_color)
+        self.puzzle_button_frame.pack(fill="x", pady=5)
+
+        tk.Button(self.puzzle_button_frame, text="🧹 Clear", font=("Segoe UI", 9),
+                 command=self.clear_board, bg="#FF9800", fg="white", relief="flat",
+                 padx=10, pady=4).pack(side="left", padx=(0, 3))
+        tk.Button(self.puzzle_button_frame, text="♟ Reset", font=("Segoe UI", 9),
+                 command=self.reset_to_start, bg="#FF9800", fg="white", relief="flat",
+                 padx=10, pady=4).pack(side="left", padx=3)
+        tk.Button(self.puzzle_button_frame, text="💡 Solve", font=("Segoe UI", 9),
+                 command=self.solve_puzzle, bg="#9C27B0", fg="white", relief="flat",
+                 padx=10, pady=4).pack(side="left", padx=3)
+        tk.Button(self.puzzle_button_frame, text="✓ Done", font=("Segoe UI", 9),
+                 command=self.finish_puzzle_setup, bg="#4CAF50", fg="white", relief="flat",
+                 padx=10, pady=4).pack(side="left", padx=3)
+
+        self.bot_button_frame = tk.Frame(right_panel, bg=self.panel_color)
+        self.bot_button_frame.pack(fill="x", pady=5)
+
+        tk.Button(self.bot_button_frame, text="▶ Start/Pause", font=("Segoe UI", 10),
+                 command=self.toggle_bot, bg="#4CAF50", fg="white", relief="flat",
+                 padx=15, pady=5).pack(side="left", padx=(0, 10))
+        tk.Label(self.bot_button_frame, text="Speed:", bg=self.panel_color,
+                fg=self.text_color, font=("Segoe UI", 9)).pack(side="left", padx=5)
+        self.bot_speed_var = tk.IntVar(value=1)
+        self.bot_speed_scale = tk.Scale(self.bot_button_frame, from_=1, to=10, orient="horizontal",
+                                       variable=self.bot_speed_var, length=120, bg=self.panel_color,
+                                       fg=self.text_color, highlightthickness=0,
+                                       command=self.update_bot_speed)
+        self.bot_speed_scale.pack(side="left", padx=5)
+
+        # Hide mode-specific buttons initially
+        self.puzzle_button_frame.pack_forget()
+        self.bot_button_frame.pack_forget()
+
         # Status bar
         self.status_var = tk.StringVar(value="Click a piece to select it")
         status_frame = tk.Frame(right_panel, bg="#1e1e1e", pady=8)
@@ -320,6 +376,97 @@ class ChessGUI:
                 frame.bind("<Button-1>", lambda e, sq=square: self.on_square_click(sq))
                 label.bind("<Button-1>", lambda e, sq=square: self.on_square_click(sq))
 
+    def show_mode_selection(self):
+        """Show dialog to select game mode"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Choose Game Mode")
+        dialog.geometry("450x540")
+        dialog.resizable(False, False)
+        dialog.configure(bg=self.panel_color)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 225
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 270
+        dialog.geometry(f"+{x}+{y}")
+
+        tk.Label(dialog, text="♟ Select Game Mode ♟",
+                font=("Segoe UI", 16, "bold"), bg=self.panel_color, fg=self.text_color).pack(pady=15)
+
+        # Current Play Mode
+        frame1 = tk.LabelFrame(dialog, text=" 🎮 Current Play ", font=("Segoe UI", 11, "bold"),
+                              bg=self.panel_color, fg=self.accent_color, bd=2, relief="groove")
+        frame1.pack(padx=20, pady=(5, 10), fill="x")
+
+        tk.Label(frame1, text="Play against the engine with analysis",
+                font=("Segoe UI", 9), bg=self.panel_color, fg="#aaa").pack(pady=(5, 10))
+
+        difficulty_var = tk.StringVar(value=self.DIFFICULTY_PERFECT)
+        tk.Radiobutton(frame1, text="Perfect (always best move)", variable=difficulty_var,
+                      value=self.DIFFICULTY_PERFECT, bg=self.panel_color, fg=self.text_color,
+                      selectcolor=self.bg_color, font=("Segoe UI", 9)).pack(anchor="w", padx=10)
+        tk.Radiobutton(frame1, text="Strong (random top 2 moves)", variable=difficulty_var,
+                      value=self.DIFFICULTY_STRONG, bg=self.panel_color, fg=self.text_color,
+                      selectcolor=self.bg_color, font=("Segoe UI", 9)).pack(anchor="w", padx=10)
+        tk.Radiobutton(frame1, text="Good (random top 4 moves)", variable=difficulty_var,
+                      value=self.DIFFICULTY_GOOD, bg=self.panel_color, fg=self.text_color,
+                      selectcolor=self.bg_color, font=("Segoe UI", 9)).pack(anchor="w", padx=10)
+        tk.Radiobutton(frame1, text="Hints Only (position eval only)", variable=difficulty_var,
+                      value=self.DIFFICULTY_HINTS, bg=self.panel_color, fg=self.text_color,
+                      selectcolor=self.bg_color, font=("Segoe UI", 9)).pack(anchor="w", padx=10)
+        tk.Radiobutton(frame1, text="No Help (play without assistance)", variable=difficulty_var,
+                      value=self.DIFFICULTY_NONE, bg=self.panel_color, fg=self.text_color,
+                      selectcolor=self.bg_color, font=("Segoe UI", 9)).pack(anchor="w", padx=10)
+
+        def select_current_play():
+            self.game_mode = self.MODE_CURRENT_PLAY
+            self.difficulty = difficulty_var.get()
+            dialog.destroy()
+            self.show_player_selection()
+
+        tk.Button(frame1, text="Start Current Play", command=select_current_play,
+                 bg="#4CAF50", fg="white", font=("Segoe UI", 10), relief="flat",
+                 padx=20, pady=5).pack(pady=8)
+
+        # Puzzle Mode
+        frame2 = tk.LabelFrame(dialog, text=" 🧩 Puzzle Mode ", font=("Segoe UI", 11, "bold"),
+                              bg=self.panel_color, fg="#9C27B0", bd=2, relief="groove")
+        frame2.pack(padx=20, pady=10, fill="x")
+
+        tk.Label(frame2, text="Set up a position and find the solution",
+                font=("Segoe UI", 9), bg=self.panel_color, fg="#aaa").pack(pady=(5, 10))
+
+        def select_puzzle():
+            self.game_mode = self.MODE_PUZZLE
+            self.puzzle_setup_mode = True
+            dialog.destroy()
+            self.setup_puzzle_mode()
+
+        tk.Button(frame2, text="Start Puzzle Mode", command=select_puzzle,
+                 bg="#9C27B0", fg="white", font=("Segoe UI", 10), relief="flat",
+                 padx=20, pady=5).pack(pady=8)
+
+        # Bot Mode
+        frame3 = tk.LabelFrame(dialog, text=" 🤖 Bot Mode ", font=("Segoe UI", 11, "bold"),
+                              bg=self.panel_color, fg="#FF9800", bd=2, relief="groove")
+        frame3.pack(padx=20, pady=10, fill="x")
+
+        tk.Label(frame3, text="Watch AI play against itself",
+                font=("Segoe UI", 9), bg=self.panel_color, fg="#aaa").pack(pady=(5, 10))
+
+        def select_bot():
+            self.game_mode = self.MODE_BOT
+            dialog.destroy()
+            self.setup_bot_mode()
+
+        tk.Button(frame3, text="Start Bot Mode", command=select_bot,
+                 bg="#FF9800", fg="white", font=("Segoe UI", 10), relief="flat",
+                 padx=20, pady=5).pack(pady=8)
+
+        # Prevent closing without selection
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+
     def show_player_selection(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Choose Your Color")
@@ -369,6 +516,266 @@ class ChessGUI:
 
         dialog.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, 'player_color', chess.WHITE),
                                                       dialog.destroy(), self.update_analysis()))
+
+    def setup_puzzle_mode(self):
+        """Initialize puzzle mode"""
+        self.board.reset()  # Start with standard starting position
+        self.puzzle_button_frame.pack(fill="x", pady=5)
+        self.auto_play_btn.pack_forget()  # Hide auto-play in puzzle mode
+        self.status_var.set("Puzzle Setup: Modify position then click 'Done'")
+        self.update_board()
+        messagebox.showinfo("Puzzle Mode",
+                          "🧩 Puzzle Setup Mode\n\n"
+                          "Starting with standard position.\n\n"
+                          "• Click empty square to place pieces\n"
+                          "• Click piece to remove it\n"
+                          "• Use 'Clear' for empty board\n"
+                          "• Use 'Reset' to restore starting position\n"
+                          "• Click 'Done' when ready\n"
+                          "• Use 'Solve' to see the solution",
+                          parent=self.root)
+
+    def setup_bot_mode(self):
+        """Initialize bot mode"""
+        self.bot_button_frame.pack(fill="x", pady=5)
+        self.auto_play_btn.pack_forget()  # Hide auto-play in bot mode
+        self.status_var.set("Bot Mode: Click Start to watch AI play")
+        self.update_board()
+        messagebox.showinfo("Bot Mode",
+                          "🤖 Bot Mode\n\n"
+                          "Watch Stockfish play against itself!\n"
+                          "• Click Start/Pause to control\n"
+                          "• Adjust speed slider\n"
+                          "• Analysis shows both sides",
+                          parent=self.root)
+
+    def clear_board(self):
+        """Clear all pieces from the board (for puzzle setup)"""
+        if self.game_mode == self.MODE_PUZZLE and self.puzzle_setup_mode:
+            self.board.clear()
+            self.update_board()
+            self.status_var.set("Board cleared. Set up your puzzle.")
+
+    def reset_to_start(self):
+        """Reset to standard starting position (for puzzle setup)"""
+        if self.game_mode == self.MODE_PUZZLE and self.puzzle_setup_mode:
+            self.board.reset()
+            self.update_board()
+            self.status_var.set("Reset to starting position. Modify as needed.")
+
+    def finish_puzzle_setup(self):
+        """Finish setting up the puzzle and start playing"""
+        if self.game_mode == self.MODE_PUZZLE:
+            self.puzzle_setup_mode = False
+            # Ask who moves first
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Who Moves First?")
+            dialog.geometry("300x140")
+            dialog.resizable(False, False)
+            dialog.configure(bg=self.panel_color)
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            dialog.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 150
+            y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 70
+            dialog.geometry(f"+{x}+{y}")
+
+            tk.Label(dialog, text="Who moves first in this puzzle?",
+                    font=("Segoe UI", 11), bg=self.panel_color, fg=self.text_color).pack(pady=15)
+
+            button_frame = tk.Frame(dialog, bg=self.panel_color)
+            button_frame.pack(pady=10)
+
+            def set_white():
+                self.board.turn = chess.WHITE
+                dialog.destroy()
+                self.status_var.set("Puzzle ready! Make moves or click 'Solve'")
+                self.update_board()
+                self.update_analysis()
+
+            def set_black():
+                self.board.turn = chess.BLACK
+                dialog.destroy()
+                self.status_var.set("Puzzle ready! Make moves or click 'Solve'")
+                self.update_board()
+                self.update_analysis()
+
+            tk.Button(button_frame, text="♔ White", command=set_white, width=10,
+                     bg="#E8D4B8", fg="black", font=("Segoe UI", 10, "bold"),
+                     relief="flat", pady=8).pack(side="left", padx=10)
+            tk.Button(button_frame, text="♚ Black", command=set_black, width=10,
+                     bg="#3d3d3d", fg="white", font=("Segoe UI", 10, "bold"),
+                     relief="flat", pady=8).pack(side="left", padx=10)
+
+    def solve_puzzle(self):
+        """Solve the current puzzle position"""
+        if self.game_mode != self.MODE_PUZZLE or self.engine is None:
+            return
+
+        def solve():
+            try:
+                # Analyze deeply to find the best sequence
+                info = self.engine.analyse(self.board, chess.engine.Limit(depth=25))
+                pv = info.get("pv", [])
+                score = info.get("score")
+
+                if not pv:
+                    def show_no_solution():
+                        messagebox.showinfo("Puzzle Solution", "No clear solution found.",
+                                          parent=self.root)
+                    self.root.after(0, show_no_solution)
+                    return
+
+                # Build solution text
+                solution_text = "💡 PUZZLE SOLUTION\n"
+                solution_text += "=" * 35 + "\n\n"
+
+                if score:
+                    if score.is_mate():
+                        mate_in = abs(score.white().mate())
+                        solution_text += f"⚔ Mate in {mate_in} moves!\n\n"
+                    else:
+                        cp = score.white().score()
+                        solution_text += f"📊 Evaluation: {cp/100:+.2f}\n\n"
+
+                solution_text += "Best line:\n"
+                temp = self.board.copy()
+                for i, move in enumerate(pv[:10]):  # Show first 10 moves
+                    descriptive = self.move_to_descriptive(temp, move)
+                    move_num = (len(temp.move_stack) + 1) // 2 + 1
+                    if i % 2 == 0:
+                        solution_text += f"\n{move_num}. {descriptive}"
+                    else:
+                        solution_text += f"\n   {descriptive}"
+                    temp.push(move)
+
+                def show_solution():
+                    messagebox.showinfo("Puzzle Solution", solution_text, parent=self.root)
+                self.root.after(0, show_solution)
+
+            except Exception as e:
+                def show_error():
+                    messagebox.showerror("Error", f"Could not solve puzzle: {str(e)}",
+                                       parent=self.root)
+                self.root.after(0, show_error)
+
+        threading.Thread(target=solve, daemon=True).start()
+
+    def toggle_bot(self):
+        """Start or pause the bot game"""
+        if self.game_mode != self.MODE_BOT:
+            return
+
+        self.bot_running = not self.bot_running
+
+        if self.bot_running:
+            self.status_var.set("🤖 Bot playing...")
+            self.make_bot_move()
+        else:
+            self.status_var.set("⏸ Bot paused. Click Start to resume.")
+
+    def update_bot_speed(self, value):
+        """Update bot move speed"""
+        # Speed 1-10, convert to milliseconds (3000ms to 300ms)
+        self.bot_speed = int(3100 - (float(value) * 300))
+
+    def make_bot_move(self):
+        """Make a move in bot mode"""
+        if not self.bot_running or self.game_mode != self.MODE_BOT:
+            return
+
+        if self.board.is_game_over():
+            self.bot_running = False
+            self.status_var.set("Game over! Click New Game for another match.")
+            return
+
+        def get_move():
+            try:
+                if self.engine:
+                    result = self.engine.play(self.board, chess.engine.Limit(depth=15))
+                    move = result.move
+
+                    def apply_move():
+                        if self.bot_running and not self.board.is_game_over():
+                            self.board.push(move)
+                            self.last_move = move
+                            self.update_board()
+                            self.update_history()
+                            self.update_analysis()
+
+                            # Schedule next move
+                            self.root.after(self.bot_speed, self.make_bot_move)
+
+                    self.root.after(0, apply_move)
+            except Exception as e:
+                def show_error():
+                    self.bot_running = False
+                    self.status_var.set(f"Bot error: {str(e)}")
+                self.root.after(0, show_error)
+
+        threading.Thread(target=get_move, daemon=True).start()
+
+    def show_piece_placement_dialog(self, square):
+        """Show dialog to select which piece to place on a square"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Place Piece")
+        dialog.geometry("380x220")
+        dialog.resizable(False, False)
+        dialog.configure(bg=self.panel_color)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 190
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 110
+        dialog.geometry(f"+{x}+{y}")
+
+        tk.Label(dialog, text=f"Place piece on {chess.square_name(square)}",
+                font=("Segoe UI", 12, "bold"), bg=self.panel_color, fg=self.text_color).pack(pady=10)
+
+        # Color selection
+        color_var = tk.StringVar(value="white")
+        color_frame = tk.Frame(dialog, bg=self.panel_color)
+        color_frame.pack(pady=10)
+        tk.Radiobutton(color_frame, text="♔ White", variable=color_var, value="white",
+                      bg=self.panel_color, fg=self.text_color, selectcolor=self.bg_color,
+                      font=("Segoe UI", 10)).pack(side="left", padx=15)
+        tk.Radiobutton(color_frame, text="♚ Black", variable=color_var, value="black",
+                      bg=self.panel_color, fg=self.text_color, selectcolor=self.bg_color,
+                      font=("Segoe UI", 10)).pack(side="left", padx=15)
+
+        # Piece selection
+        tk.Label(dialog, text="Select piece:", font=("Segoe UI", 10),
+                bg=self.panel_color, fg=self.text_color).pack(pady=5)
+        piece_buttons = tk.Frame(dialog, bg=self.panel_color)
+        piece_buttons.pack(pady=10)
+
+        pieces = [
+            ("♟ Pawn", chess.PAWN),
+            ("♞ Knight", chess.KNIGHT),
+            ("♝ Bishop", chess.BISHOP),
+            ("♜ Rook", chess.ROOK),
+            ("♛ Queen", chess.QUEEN),
+            ("♚ King", chess.KING)
+        ]
+
+        def place_piece(piece_type):
+            color = chess.WHITE if color_var.get() == "white" else chess.BLACK
+            piece = chess.Piece(piece_type, color)
+            self.board.set_piece_at(square, piece)
+            self.status_var.set(f"Placed {color_var.get()} piece on {chess.square_name(square)}")
+            self.update_board()
+            dialog.destroy()
+
+        for name, piece_type in pieces:
+            tk.Button(piece_buttons, text=name, width=7, command=lambda pt=piece_type: place_piece(pt),
+                     bg="#555", fg="white", font=("Segoe UI", 9), relief="flat",
+                     pady=3).pack(side="left", padx=2)
+
+        tk.Button(dialog, text="Cancel", command=dialog.destroy,
+                 bg="#777", fg="white", font=("Segoe UI", 10), relief="flat",
+                 padx=20, pady=5).pack(pady=10)
 
     def move_to_descriptive(self, board, move):
         piece = board.piece_at(move.from_square)
@@ -462,29 +869,30 @@ class ChessGUI:
             turn = "White" if self.board.turn == chess.WHITE else "Black"
             self.turn_label.config(text=f"{turn} to move")
 
-        # Game end states
-        if self.board.is_checkmate():
-            if self.player_color is not None:
-                msg = "💀 Checkmate! You lost." if self.board.turn == self.player_color else "🏆 Checkmate! You won!"
-                title = "Defeat!" if self.board.turn == self.player_color else "Victory!"
-            else:
-                winner = "Black" if self.board.turn == chess.WHITE else "White"
-                msg = f"Checkmate! {winner} wins!"
-                title = "Checkmate!"
-            self.status_var.set(msg)
-            self.show_game_over_dialog(title, msg)
-        elif self.board.is_stalemate():
-            self.status_var.set("🤝 Stalemate - Draw!")
-            self.show_game_over_dialog("Draw!", "🤝 Stalemate - The game is a draw!")
-        elif self.board.is_insufficient_material():
-            self.status_var.set("🤝 Draw - Insufficient material")
-            self.show_game_over_dialog("Draw!", "🤝 Insufficient material to checkmate!")
-        elif self.board.is_check():
-            if self.player_color is not None:
-                msg = "⚠ You are in check!" if self.board.turn == self.player_color else "Check!"
-            else:
-                msg = f"{'White' if self.board.turn == chess.WHITE else 'Black'} is in check!"
-            self.status_var.set(msg)
+        # Game end states (skip during puzzle setup)
+        if not (self.game_mode == self.MODE_PUZZLE and self.puzzle_setup_mode):
+            if self.board.is_checkmate():
+                if self.player_color is not None:
+                    msg = "💀 Checkmate! You lost." if self.board.turn == self.player_color else "🏆 Checkmate! You won!"
+                    title = "Defeat!" if self.board.turn == self.player_color else "Victory!"
+                else:
+                    winner = "Black" if self.board.turn == chess.WHITE else "White"
+                    msg = f"Checkmate! {winner} wins!"
+                    title = "Checkmate!"
+                self.status_var.set(msg)
+                self.show_game_over_dialog(title, msg)
+            elif self.board.is_stalemate():
+                self.status_var.set("🤝 Stalemate - Draw!")
+                self.show_game_over_dialog("Draw!", "🤝 Stalemate - The game is a draw!")
+            elif self.board.is_insufficient_material():
+                self.status_var.set("🤝 Draw - Insufficient material")
+                self.show_game_over_dialog("Draw!", "🤝 Insufficient material to checkmate!")
+            elif self.board.is_check():
+                if self.player_color is not None:
+                    msg = "⚠ You are in check!" if self.board.turn == self.player_color else "Check!"
+                else:
+                    msg = f"{'White' if self.board.turn == chess.WHITE else 'Black'} is in check!"
+                self.status_var.set(msg)
 
     def show_game_over_dialog(self, title, message):
         """Show a popup dialog when the game ends"""
@@ -533,6 +941,19 @@ class ChessGUI:
                  relief="flat", padx=15, pady=5).pack(side="left", padx=10)
 
     def on_square_click(self, square):
+        # Puzzle setup mode - place/remove pieces
+        if self.game_mode == self.MODE_PUZZLE and self.puzzle_setup_mode:
+            piece = self.board.piece_at(square)
+            if piece:
+                # Remove piece
+                self.board.remove_piece_at(square)
+                self.status_var.set(f"Removed piece from {chess.square_name(square)}")
+            else:
+                # Show dialog to place piece
+                self.show_piece_placement_dialog(square)
+            self.update_board()
+            return
+
         if self.board.is_game_over():
             return
 
@@ -613,82 +1034,207 @@ class ChessGUI:
         self.history_text.config(state="disabled")
 
     def update_analysis(self):
-        if self.engine is None or self.player_color is None:
+        if self.engine is None:
             return
+
+        # Different analysis behavior based on game mode
+        if self.game_mode == self.MODE_CURRENT_PLAY:
+            if self.difficulty == self.DIFFICULTY_NONE:
+                # No analysis shown
+                self.analysis_text.config(state="normal")
+                self.analysis_text.delete("1.0", "end")
+                self.analysis_text.insert("1.0", "🚫 Analysis disabled\n\nPlay without assistance!")
+                self.analysis_text.config(state="disabled")
+                return
+
+            if self.player_color is None:
+                return  # Wait for player selection
 
         def analyze():
             try:
-                info = self.engine.analyse(self.board, chess.engine.Limit(depth=18))
+                # Determine MultiPV setting based on difficulty
+                multipv = 1  # Default
+                if self.game_mode == self.MODE_CURRENT_PLAY:
+                    if self.difficulty == self.DIFFICULTY_STRONG:
+                        multipv = 2
+                    elif self.difficulty == self.DIFFICULTY_GOOD:
+                        multipv = 4
+
+                # Analyze with appropriate MultiPV setting
+                infos = self.engine.analyse(self.board, chess.engine.Limit(depth=18), multipv=multipv)
+
+                # If multipv=1, analyse returns a single info dict, otherwise a list
+                if not isinstance(infos, list):
+                    infos = [infos]
+
+                # Primary info for scoring
+                info = infos[0]
                 score = info.get("score")
                 pv = info.get("pv", [])
                 depth = info.get("depth", 0)
 
-                is_player_turn = self.board.turn == self.player_color
-
-                # Store best move for auto-play
-                if pv and is_player_turn:
-                    self.best_move = pv[0]
-                else:
-                    self.best_move = None
-
-                # Format score
-                if score:
-                    if score.is_mate():
-                        mate_in = score.white().mate()
-                        if self.player_color == chess.WHITE:
-                            score_text = f"Mate in {mate_in}!" if mate_in > 0 else f"Opponent mates in {-mate_in}"
+                # Format score based on game mode
+                if self.game_mode == self.MODE_BOT:
+                    # Bot mode: show analysis for both sides
+                    if score:
+                        if score.is_mate():
+                            mate_in = score.white().mate()
+                            score_text = f"White mates in {mate_in}" if mate_in > 0 else f"Black mates in {-mate_in}"
                         else:
-                            score_text = f"Mate in {-mate_in}!" if mate_in < 0 else f"Opponent mates in {mate_in}"
+                            cp = score.white().score()
+                            eval_score = cp / 100
+                            score_text = f"Eval: {eval_score:+.2f} (White)"
                     else:
-                        cp = score.white().score()
-                        if self.player_color == chess.BLACK:
-                            cp = -cp
-                        eval_score = cp / 100
-                        if eval_score > 0.5:
-                            score_text = f"You're ahead +{eval_score:.1f}"
-                        elif eval_score < -0.5:
-                            score_text = f"You're behind {eval_score:.1f}"
+                        score_text = "N/A"
+
+                    content = f"📊 {score_text}\n🔍 Depth: {depth}\n"
+                    turn_name = "White" if self.board.turn == chess.WHITE else "Black"
+                    content += f"{'♔' if self.board.turn == chess.WHITE else '♚'} {turn_name}'s turn\n"
+                    content += "─" * 30 + "\n\n"
+
+                    if pv:
+                        desc = self.move_to_descriptive(self.board, pv[0])
+                        content += f"💡 Best: {desc}\n\n"
+
+                        if len(pv) > 1:
+                            content += "📈 Continuation:\n"
+                            temp = self.board.copy()
+                            for i, m in enumerate(pv[:6]):
+                                d = self.move_to_descriptive(temp, m)
+                                move_num = (len(temp.move_stack) + 1) // 2 + 1
+                                if i % 2 == 0:
+                                    content += f"\n{move_num}. {d}"
+                                else:
+                                    content += f"\n   {d}"
+                                temp.push(m)
+
+                elif self.game_mode == self.MODE_PUZZLE:
+                    # Puzzle mode: show objective analysis
+                    if score:
+                        if score.is_mate():
+                            mate_in = score.white().mate()
+                            turn_name = "White" if self.board.turn == chess.WHITE else "Black"
+                            if (mate_in > 0 and self.board.turn == chess.WHITE) or \
+                               (mate_in < 0 and self.board.turn == chess.BLACK):
+                                score_text = f"Mate in {abs(mate_in)} for {turn_name}"
+                            else:
+                                score_text = f"Mate in {abs(mate_in)} vs {turn_name}"
                         else:
-                            score_text = "≈ Equal position"
+                            cp = score.white().score()
+                            eval_score = cp / 100
+                            score_text = f"Eval: {eval_score:+.2f}"
+                    else:
+                        score_text = "N/A"
+
+                    content = f"📊 {score_text}\n🔍 Depth: {depth}\n"
+                    turn_name = "White" if self.board.turn == chess.WHITE else "Black"
+                    content += f"{'♔' if self.board.turn == chess.WHITE else '♚'} {turn_name} to move\n"
+                    content += "─" * 30 + "\n\n"
+
+                    if pv and not self.puzzle_setup_mode:
+                        desc = self.move_to_descriptive(self.board, pv[0])
+                        content += f"💡 Hint: {desc}\n\n"
+                        content += "(Use 'Solve' for full solution)"
+
                 else:
-                    score_text = "N/A"
+                    # Current Play mode
+                    is_player_turn = self.board.turn == self.player_color
+                    button_text = "▶ PLAY BEST MOVE"  # Default button text
 
-                # Build analysis content
-                content = f"📊 {score_text}\n"
-                content += f"🔍 Depth: {depth}\n"
-                content += "─" * 30 + "\n\n"
+                    # Store best move for auto-play button (always use top move)
+                    if pv and is_player_turn:
+                        self.best_move = pv[0]
+                    else:
+                        self.best_move = None
 
-                if is_player_turn and pv:
-                    desc = self.move_to_descriptive(self.board, pv[0])
-                    content += f"💡 BEST MOVE:\n"
-                    content += f"   {desc}\n\n"
+                    if score:
+                        if score.is_mate():
+                            mate_in = score.white().mate()
+                            if self.player_color == chess.WHITE:
+                                score_text = f"Mate in {mate_in}!" if mate_in > 0 else f"Opponent mates in {-mate_in}"
+                            else:
+                                score_text = f"Mate in {-mate_in}!" if mate_in < 0 else f"Opponent mates in {mate_in}"
+                        else:
+                            cp = score.white().score()
+                            if self.player_color == chess.BLACK:
+                                cp = -cp
+                            eval_score = cp / 100
+                            if eval_score > 0.5:
+                                score_text = f"You're ahead +{eval_score:.1f}"
+                            elif eval_score < -0.5:
+                                score_text = f"You're behind {eval_score:.1f}"
+                            else:
+                                score_text = "≈ Equal position"
+                    else:
+                        score_text = "N/A"
 
-                    if len(pv) > 1:
-                        content += "📈 Expected line:\n"
-                        temp = self.board.copy()
-                        for i, m in enumerate(pv[:5]):
-                            who = "You" if (i % 2 == 0) else "Opp"
-                            d = self.move_to_descriptive(temp, m)
-                            content += f"   {who}: {d}\n"
-                            temp.push(m)
-                elif not is_player_turn:
-                    content += "⏳ OPPONENT'S TURN\n\n"
-                    content += "Enter their move on the board\n"
-                    content += "to see your next suggestion."
+                    content = f"📊 {score_text}\n🔍 Depth: {depth}\n"
+                    content += "─" * 30 + "\n\n"
+
+                    if is_player_turn:
+                        if self.difficulty == self.DIFFICULTY_HINTS:
+                            # Hints only - no best move shown
+                            content += "💭 HINTS MODE\n\n"
+                            content += "Position eval shown above.\n"
+                            content += "Best move hidden - trust yourself!"
+                            button_text = "▶ NO HINTS MODE"
+                        elif pv:
+                            # Show multiple move options based on difficulty
+                            if self.difficulty == self.DIFFICULTY_PERFECT:
+                                content += f"💡 BEST MOVE:\n"
+                                button_text = "▶ PLAY BEST MOVE"
+                            elif self.difficulty == self.DIFFICULTY_STRONG:
+                                content += f"💡 TOP 2 MOVES:\n"
+                                button_text = "▶ PLAY BEST MOVE"
+                            elif self.difficulty == self.DIFFICULTY_GOOD:
+                                content += f"💡 TOP 4 MOVES:\n"
+                                button_text = "▶ PLAY BEST MOVE"
+                            else:
+                                content += f"💡 SUGGESTED MOVE:\n"
+                                button_text = "▶ PLAY BEST MOVE"
+
+                            # Display moves from MultiPV analysis
+                            move_icons = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
+                            for i, info_item in enumerate(infos):
+                                move_pv = info_item.get("pv", [])
+                                if move_pv:
+                                    desc = self.move_to_descriptive(self.board, move_pv[0])
+                                    content += f"   {move_icons[i]} {desc}\n"
+
+                            content += "\n"
+
+                            # Show continuation for best move only
+                            if len(pv) > 1 and self.difficulty == self.DIFFICULTY_PERFECT:
+                                content += "📈 Expected line:\n"
+                                temp = self.board.copy()
+                                temp.push(pv[0])
+                                for i, m in enumerate(pv[1:6]):
+                                    who = "Opp" if (i % 2 == 0) else "You"
+                                    d = self.move_to_descriptive(temp, m)
+                                    content += f"   {who}: {d}\n"
+                                    temp.push(m)
+                    else:
+                        content += "⏳ OPPONENT'S TURN\n\n"
+                        content += "Enter their move on the board\n"
+                        content += "to see your next suggestion."
 
                 def update_ui():
                     self.analysis_text.config(state="normal")
                     self.analysis_text.delete("1.0", "end")
                     self.analysis_text.insert("1.0", content)
                     self.analysis_text.config(state="disabled")
+                    # Update button text if in Current Play mode
+                    if self.game_mode == self.MODE_CURRENT_PLAY:
+                        self.auto_play_btn.config(text=button_text)
 
                 self.root.after(0, update_ui)
 
             except Exception as e:
+                error_msg = f"Analysis error: {e}"
                 def show_error():
                     self.analysis_text.config(state="normal")
                     self.analysis_text.delete("1.0", "end")
-                    self.analysis_text.insert("1.0", f"Analysis error: {e}")
+                    self.analysis_text.insert("1.0", error_msg)
                     self.analysis_text.config(state="disabled")
                 self.root.after(0, show_error)
 
@@ -748,6 +1294,16 @@ class ChessGUI:
                 self.status_var.set(f"Error loading file: {e}")
 
     def new_game(self):
+        # Stop bot if running
+        self.bot_running = False
+
+        # Hide mode-specific buttons and show auto-play button
+        self.puzzle_button_frame.pack_forget()
+        self.bot_button_frame.pack_forget()
+        if hasattr(self, 'auto_play_btn'):
+            self.auto_play_btn.pack(fill="x", pady=(0, 10))
+
+        # Reset game state
         self.board = chess.Board()
         self.selected_square = None
         self.player_color = None
@@ -755,11 +1311,23 @@ class ChessGUI:
         self.last_move = None
         self.best_move = None
         self.game_over_shown = False
+        self.game_mode = None
+        self.puzzle_setup_mode = False
+        self.difficulty = self.DIFFICULTY_PERFECT
+
         self.update_board_orientation()
-        self.status_var.set("New game - Choose your color")
+        self.status_var.set("New game - Choose game mode")
         self.update_board()
         self.update_history()
-        self.show_player_selection()
+
+        # Clear analysis
+        self.analysis_text.config(state="normal")
+        self.analysis_text.delete("1.0", "end")
+        self.analysis_text.insert("1.0", "Select game mode to begin...")
+        self.analysis_text.config(state="disabled")
+
+        # Show mode selection
+        self.show_mode_selection()
 
     def undo_move(self):
         if self.board.move_stack:
